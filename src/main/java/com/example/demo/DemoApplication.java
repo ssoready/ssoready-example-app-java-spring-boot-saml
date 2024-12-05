@@ -25,9 +25,22 @@ public class DemoApplication {
     private SSOReady ssoready;
 
     public DemoApplication() {
+        // Do not hard-code or leak your SSOReady API key in production!
+        //
+        // In production, instead you should configure a secret SSOREADY_API_KEY
+        // environment variable. The SSOReady SDK automatically loads an API key
+        // from SSOREADY_API_KEY.
+        //
+        // This key is hard-coded here for the convenience of logging into a
+        // test app, which is hard-coded to run on http://localhost:8080. It's
+        // only because of this very specific set of constraints that it's
+        // acceptable to hard-code and publicly leak this API key.
         this.ssoready = SSOReady.builder().apiKey("ssoready_sk_3zf23s31evpa68hdxz35ggls5").build();
     }
 
+    // This demo just renders plain old HTML with no client-side JavaScript, and
+    // a little bit of pretty TailwindCSS. This is only to keep the demo
+    // minimal. SSOReady works with any frontend stack or framework you use.
     @GetMapping(path = "/", produces = "text/html")
     public String index(@CookieValue("email") Optional<String> email) {
         return """
@@ -70,6 +83,10 @@ public class DemoApplication {
                 """.formatted(email.orElse("logged-out user"));
     }
 
+    // This is the page users visit when they click on the "Log out" link in
+    // this demo app. It just resets their email cookie.
+    //
+    // SSOReady doesn't impose any constraints on how your app's sessions work.
     @GetMapping("/logout")
     public RedirectView logout(HttpServletResponse response) {
         Cookie cookie = new Cookie("email", "");
@@ -79,11 +96,24 @@ public class DemoApplication {
         return new RedirectView("/");
     }
 
+    // This is the page users visit when they submit the "Log in with SAML" form in
+    // this demo app.
     @GetMapping("/saml-redirect")
     public RedirectView samlRedirect(@RequestParam(value = "email") String email) {
+        // To start a SAML login, you need to redirect your user to their
+        // employer's particular Identity Provider. This is called "initiating"
+        // the SAML login.
+        //
+        // Use `getSamlRedirectUrl` to initiate a SAML login.
         String redirectUrl = this.ssoready.saml().getSamlRedirectUrl(
                 GetSamlRedirectUrlRequest
                         .builder()
+                        // organizationExternalId is how you tell SSOReady which
+                        // company's identity provider you want to redirect to.
+                        //
+                        // In this demo, we identify companies using their
+                        // domain. This code converts "john.doe@example.com"
+                        // into "example.com".
                         .organizationExternalId(email.split("@")[1])
                         .build()
         ).getRedirectUrl().orElseThrow();
@@ -91,8 +121,17 @@ public class DemoApplication {
         return new RedirectView(redirectUrl);
     }
 
+    // This is the page SSOReady redirects your users to when they've
+    // successfully logged in with SAML.
     @GetMapping("/ssoready-callback")
     public RedirectView ssoreadyCallback(HttpServletResponse response, @RequestParam(value = "saml_access_code") String samlAccessCode) {
+        // SSOReady gives you a one-time SAML access code under
+        // ?saml_access_code=saml_access_code_... in the callback URL's query
+        // parameters.
+        //
+        // You redeem that SAML access code using `redeemSamlAccessCode`, which
+        // gives you back the user's email address. Then, it's your job to log
+        // the user in as that email.
         String email = this.ssoready.saml().redeemSamlAccessCode(
                 RedeemSamlAccessCodeRequest
                         .builder()
@@ -100,10 +139,13 @@ public class DemoApplication {
                         .build()
         ).getEmail().orElseThrow();
 
+        // SSOReady works with any stack or session technology you use. In this
+        // demo app, we just directly use HttpServletResponse.
         Cookie cookie = new Cookie("email", email);
         cookie.setMaxAge(3600);
         response.addCookie(cookie);
 
+        // Redirect back to the demo app homepage.
         return new RedirectView("/");
     }
 }
